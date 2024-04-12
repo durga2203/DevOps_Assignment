@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: angular-frontend
+  name: angular-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: angular-frontend
+  template:
+    metadata:
+      labels:
+        app: angular-frontend
+    spec:
+      containers:
+      - image: durga2203/senior-devops-assessment-frontend:latest
+        name: angular-frontend
+        ports:
+        - containerPort: 4200

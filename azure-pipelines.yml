@@ -1,0 +1,121 @@
+trigger:
+- main
+
+jobs:
+- job: Backend
+  pool:
+    name: Devops
+    demands:
+      - Agent.Name -equals AZAgent
+  variables:
+    subscriptionId: '48cb728a-ea5a-4c4b-8afe-9d81d1b53ae4'
+    dockerUsername: 'durga2203'
+    dockerPassword: 'Welcome@2023'
+    namespace: 'backend'
+    backendDeploymentName: 'deployment-backend'
+    backendDockerImageName: 'senior-devops-assessment-backend'
+    backendDockerImageTag: 'latest'
+  steps:
+  - task: Bash@3
+    displayName: 'AZ Login'
+    inputs:
+      targetType: 'inline'
+      script: |
+        az account set --subscription $(subscriptionId)
+        az account subscription list
+        az aks get-credentials --resource-group frontend --name App-Cluster
+
+  - task: Bash@3
+    displayName: 'Build and Push backend Docker Image'
+    inputs:
+      targetType: 'inline'
+      script: |
+       cd backend
+       docker login --username=$(dockerUsername) --password=$(dockerPassword)
+       docker build -t $(backendDockerImageName) .
+       docker tag $(backendDockerImageName) $(dockerUsername)/$(backendDockerImageName):$(backendDockerImageTag)
+       docker push $(dockerUsername)/$(backendDockerImageName):$(backendDockerImageTag)
+
+        
+  - task: Bash@3
+    displayName: 'Deploy backend Kubernetes files'
+    inputs:
+      targetType: 'inline'
+      script: |
+        ls
+        name=$(kubectl get ns | grep $(namespace) | head -1 | awk '{ print $1 }')
+        echo $name
+        if [ "$name" = "$(namespace)" ]; then
+          echo "$(namespace) namespace already present"
+        else
+          kubectl create ns $(namespace)
+        fi
+        OUT=$(kubectl get deployment -n $(namespace) | grep $(backendDeploymentName) | awk '{print $1}')
+        echo $OUT
+        if [ "$OUT" = "$(backendDeploymentName)" ]; then
+          kubectl replace -f deployment.yaml -n $(namespace)
+          kubectl replace -f service.yaml -n $(namespace)
+        else
+          kubectl apply -f deployment.yaml -n $(namespace)
+          kubectl apply -f service.yaml -n $(namespace)
+        fi
+        kubectl delete --all pods -n $(namespace)
+
+- job: Frontend
+  dependsOn: Backend
+  pool:
+    name: Devops
+    demands:
+      - Agent.Name -equals AZAgent
+  variables:
+    subscriptionId: $[ dependencies.Backend.variables['subscriptionId'] ]
+    dockerUsername: $[ dependencies.Backend.variables['dockerUsername'] ]
+    dockerPassword: $[ dependencies.Backend.variables['dockerPassword'] ]
+    namespace: 'frontend'
+    frontendDeploymentName: 'deployment-frontend'
+    frontendDockerImageName: 'senior-devops-assessment-frontend'
+    frontendDockerImageTag: 'latest'
+  steps:
+  - task: Bash@3
+    displayName: 'AZ Login'
+    inputs:
+      targetType: 'inline'
+      script: |
+        az account set --subscription $(subscriptionId)
+        az account subscription list
+        az aks get-credentials --resource-group frontend --name App-Cluster
+
+  - task: Bash@3
+    displayName: 'Build and Push frontend Docker Image'
+    inputs:
+      targetType: 'inline'
+      script: |
+       cd frontend
+       docker login --username=$(dockerUsername) --password=$(dockerPassword)
+       docker build -t $(frontendDockerImageName) .
+       docker tag $(frontendDockerImageName) $(dockerUsername)/$(frontendDockerImageName):$(frontendDockerImageTag)
+       docker push $(dockerUsername)/$(frontendDockerImageName):$(frontendDockerImageTag)
+        
+  - task: Bash@3
+    displayName: 'Deploy frontend Kubernetes files'
+    inputs:
+      targetType: 'inline'
+      script: |
+        ls
+        name=$(kubectl get ns | grep $(namespace) | head -1 | awk '{ print $1 }')
+        echo $name
+        if [ "$name" = "$(namespace)" ]; then
+          echo "$(namespace) namespace already present"
+        else
+          kubectl create ns $(namespace)
+        fi
+        OUT=$(kubectl get deployment -n $(namespace) | grep $(frontendDeploymentName) | awk '{print $1}')
+        echo $OUT
+        if [ "$OUT" = "$(frontendDeploymentName)" ]; then
+          kubectl replace -f deployment.yaml -n $(namespace)
+          kubectl replace -f service.yaml -n $(namespace)
+        else
+          kubectl apply -f deployment.yaml -n $(namespace)
+          kubectl apply -f service.yaml -n $(namespace)
+        fi
+        kubectl delete --all pods -n $(namespace)

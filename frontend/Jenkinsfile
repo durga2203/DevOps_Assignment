@@ -1,0 +1,91 @@
+pipeline{
+    agent any
+    environment {
+        buildnumber = "${env.BUILD_NUMBER}"
+        jobName = "${env.JOB_NAME}"
+        RESOURCE_GROUP_NAME = "DCP-DEMO-AKS"
+        AKS_CLUSTER_NAME = "dcp-demo-aks-cluster-eus-1"
+    }
+
+    stages{
+
+
+        stage('Azure Login') {
+            steps {
+
+                withCredentials(
+                    [string(credentialsId: 'OC_AZURE_SERVICE_PRINCIPAL', variable: 'AZURE_SERVICE_PRINCIPAL'),
+                     string(credentialsId: 'OC_AZURE_TENANT_ID', variable: 'AZURE_TENANT_ID'),
+                     string(credentialsId: 'OC_AZURE_CLIENT_SECRET', variable: 'AZURE_CLIENT_SECRET'),
+                     string(credentialsId: 'OC_AZURE_SUBSCRIPTION_ID', variable: 'AZURE_SUBSCRIPTION_ID')
+                     ]) {
+                    sh '''
+                    az login --service-principal --tenant $AZURE_TENANT_ID --username $AZURE_SERVICE_PRINCIPAL --password $AZURE_CLIENT_SECRET            
+                    az account set --subscription $AZURE_SUBSCRIPTION_ID
+                    az account subscription list
+                    az aks get-credentials --resource-group $RESOURCE_GROUP_NAME --name $AKS_CLUSTER_NAME
+                 '''
+                
+                }
+
+            }
+        }
+
+        stage('Build and Push Docker Image to ACR') {
+            steps {
+                    sh '''
+            whoami
+                    az acr login -n dcpdemoacr 
+                    echo "$PWD"
+                    #docker run --rm -u gradle:8.3.0 -v "$PWD":/home/gradle/project -w /home/gradle/project gradle gradle build --no-daemon
+            #chmod +x gradlew
+            #./gradlew clean build
+                    ls -la
+                    docker build -t edj/springthymeleaf-fw4 -f Dockerfile-Gradle .
+                    docker tag edj/springthymeleaf-fw4:latest dcpdemoacr.azurecr.io/edj/springthymeleaf-fw4:latest
+                    docker push dcpdemoacr.azurecr.io/edj/springthymeleaf-fw4:latest
+                '''
+            }
+        }
+
+        stage('Deploy app to AKS') {
+            steps {
+              sh '''
+                    namespace='edj-thymeleaf-fw4'
+                    ls
+              
+                    name=$(kubectl get ns | grep edj-thymeleaf-fw4 | head -1 | awk '{ print $1 }')
+                    echo $name
+
+                    if [ "$name" = "$namespace" ]; then
+                        echo "edj-thymeleaf-fw4 namespace already present"
+                    else
+                        kubectl create ns edj-thymeleaf-fw4
+                    fi
+        
+                    OUT=$(kubectl get deployment -n $namespace | grep spring-thymeleaf-fw4 | awk '{print $1}')
+                    echo $OUT
+        
+                    if [ "$OUT" = "spring-thymeleaf-fw4" ]; then
+                           kubectl replace -f deployment.yaml
+               kubectl replace -f service.yaml
+                    else
+                        kubectl apply -f deployment.yaml
+                    kubectl apply -f service.yaml
+                    fi
+
+                       kubectl delete --all pods -n edj-thymeleaf-fw4
+
+                    '''
+            }
+         }
+
+    stage('Clean Docker images and workspace'){
+          steps{
+            sh 'docker rmi dcpdemoacr.azurecr.io/edj/springthymeleaf-fw4:latest'
+            cleanWs()
+             }
+      }
+    }
+}
+
